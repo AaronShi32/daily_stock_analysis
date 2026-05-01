@@ -1,0 +1,13 @@
+# SearXNG minimal settings for DSA project
+# Inherits all defaults, only overrides what's needed
+
+use_default_settings: true
+
+search:
+  formats:
+    - html
+    - json
+
+server:
+  secret_key: "dsa-searxng-secret-key-change-me"
+  limiter: false
