@@ -1,14 +1,13 @@
 # ===================================
 # A股自选股智能分析系统 - Docker Compose
 # ===================================
-# 
+#
 # 使用方式:
-#   定时模式: docker-compose -f ./docker/docker-compose.yml up -d
-#   FastAPI模式: docker-compose -f ./docker/docker-compose.yml up -d server
-#   同时启动: docker-compose -f ./docker/docker-compose.yml up -d analyzer server
+#   全部启动: docker-compose -f ./docker/docker-compose.yml up -d
+#   仅 Web:  docker-compose -f ./docker/docker-compose.yml up -d server
+#   仅分析:  docker-compose -f ./docker/docker-compose.yml up -d analyzer-pre analyzer-post
 
 name: daily-stock-analysis
-version: '3.8'
 
 x-common: &common
   build:
@@ -26,25 +25,24 @@ x-common: &common
     - ../reports:/app/reports
     - ../.env:/app/.env
     - ../strategies:/app/strategies:ro
-    # 如需覆盖前端静态资源，可挂载本地 static 目录
-    # - ../static:/app/static:ro
 
   environment:
     - TZ=Asia/Shanghai
-
-    # Web/API service bind address (must be 0.0.0.0 inside container)
     - WEBUI_HOST=0.0.0.0
-    # API_PORT 从 .env 文件读取，无需在此硬编码
+    # 容器间通过 service name 访问 SearXNG
+    - SEARXNG_BASE_URLS=http://searxng:8080
+    - SEARXNG_PUBLIC_INSTANCES_ENABLED=false
 
-    # 代理设置（如果需要）
-    # - http_proxy=http://host.docker.internal:10809
-    # - https_proxy=http://host.docker.internal:10809
+  depends_on:
+    searxng:
+      condition: service_healthy
+
   logging:
     driver: "json-file"
     options:
       max-size: "10m"
       max-file: "3"
-  # 资源限制
+
   deploy:
     resources:
       limits:
@@ -53,16 +51,60 @@ x-common: &common
         memory: 256M
 
 services:
-  # 定时任务模式
-  analyzer:
-    <<: *common
-    container_name: stock-analyzer
+  # SearXNG 搜索引擎
+  searxng:
+    image: searxng/searxng:latest
+    container_name: dsa-searxng
+    restart: unless-stopped
+    volumes:
+      - ./searxng-settings.yml:/etc/searxng/settings.yml:ro
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8080/
+    ports:
+      - "8888:8080"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
-  # FastAPI 模式
+  # 美股盘前分析（北京时间 21:00，周一至周五）
+  analyzer-pre:
+    <<: *common
+    container_name: stock-analyzer-pre
+    environment:
+      - TZ=Asia/Shanghai
+      - WEBUI_HOST=0.0.0.0
+      - SEARXNG_BASE_URLS=http://searxng:8080
+      - SEARXNG_PUBLIC_INSTANCES_ENABLED=false
+      - SCHEDULE_ENABLED=true
+      - SCHEDULE_TIME=21:00
+      - SCHEDULE_RUN_IMMEDIATELY=false
+      - MARKET_REVIEW_REGION=us
+
+  # 美股盘后分析（北京时间 05:00，周二至周六）
+  analyzer-post:
+    <<: *common
+    container_name: stock-analyzer-post
+    environment:
+      - TZ=Asia/Shanghai
+      - WEBUI_HOST=0.0.0.0
+      - SEARXNG_BASE_URLS=http://searxng:8080
+      - SEARXNG_PUBLIC_INSTANCES_ENABLED=false
+      - SCHEDULE_ENABLED=true
+      - SCHEDULE_TIME=05:00
+      - SCHEDULE_RUN_IMMEDIATELY=false
+      - MARKET_REVIEW_REGION=us
+
+  # Web 服务 + 飞书 Stream Bot
   server:
     <<: *common
     container_name: stock-server
     command: ["python", "main.py", "--serve-only", "--host", "0.0.0.0", "--port", "${API_PORT:-8000}"]
-    # 若使用 network_mode: host，则以下 ports 映射无效，端口由 command 中的 --port 指定
     ports:
       - "${API_PORT:-8000}:${API_PORT:-8000}"
