@@ -507,11 +507,9 @@ def run_full_analysis(
             if review_result:
                 market_report = review_result
 
-        # Issue #190: 合并推送（个股+大盘复盘）
-        if merge_notification and (results or market_report) and not args.no_notify:
+        # Issue #190: 合并推送（仅决策仪表盘，不含大盘复盘）
+        if merge_notification and results and not args.no_notify:
             parts = []
-            if market_report:
-                parts.append(f"# 📈 大盘复盘\n\n{market_report}")
             if results:
                 dashboard_content = pipeline.notifier.generate_aggregate_report(
                     results,
@@ -543,20 +541,16 @@ def run_full_analysis(
             from src.feishu_doc import FeishuDocManager
 
             feishu_doc = FeishuDocManager()
-            if feishu_doc.is_configured() and (results or market_report):
+            if feishu_doc.is_configured() and results:
                 logger.info("正在创建飞书云文档...")
 
                 # 1. 准备标题 "01-01 13:01大盘复盘"
                 tz_cn = timezone(timedelta(hours=8))
                 now = datetime.now(tz_cn)
-                doc_title = f"{now.strftime('%Y-%m-%d %H:%M')} 大盘复盘"
+                doc_title = f"{now.strftime('%Y-%m-%d %H:%M')} 决策仪表盘"
 
                 # 2. 准备内容 (拼接个股分析和大盘复盘)
                 full_content = ""
-
-                # 添加大盘复盘内容（如果有）
-                if market_report:
-                    full_content += f"# 📈 大盘复盘\n\n{market_report}\n\n---\n\n"
 
                 # 添加个股决策仪表盘（使用 NotificationService 生成，按 report_type 分支）
                 if results:
