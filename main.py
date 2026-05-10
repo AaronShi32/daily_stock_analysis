@@ -499,7 +499,7 @@ def run_full_analysis(
                 notifier=pipeline.notifier,
                 analyzer=pipeline.analyzer,
                 search_service=pipeline.search_service,
-                send_notification=not args.no_notify,
+                send_notification=False,  # 大盘复盘仅保存报告，不推送通知
                 merge_notification=merge_notification,
                 override_region=effective_region,
             )
